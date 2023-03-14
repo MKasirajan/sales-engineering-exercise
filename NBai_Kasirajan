@@ -1,0 +1,95 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Mar 14 13:36:59 2023
+
+@author: KasirajanMahalingam
+"""
+import sys
+from PyQt5 import QtWidgets, QtWebEngineWidgets
+import requests
+import json
+import polyline
+from geopy.distance import geodesic
+
+API_KEY = "a0e71d8433ee49a4ba18032e1ed21ec7"
+DISCOVER_API_URL = f"https://api.nextbillion.io/h/discover?key={API_KEY}&in=countryCode:IND&lang=EN&limit=20"
+DIRECTIONS_API_URL = f"https://api.nextbillion.io/directions/json?key={API_KEY}&geometry=polyline&mode=4w&overview=full&steps=true"
+
+class POISearch(QtWidgets.QWidget):
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("NextBillion.ai POI Search and Directions")
+        self.setGeometry(100, 100, 800, 600)
+
+        # Create GUI widgets
+        self.search_entry = QtWidgets.QLineEdit()
+        self.search_entry.setPlaceholderText("Search for Point of Interest")
+        self.transport_mode = QtWidgets.QComboBox()
+        self.transport_mode.addItems(["walking", "driving"])
+        self.search_button = QtWidgets.QPushButton("Search")
+        self.search_button.clicked.connect(self.search_poi)
+        self.web_view = QtWebEngineWidgets.QWebEngineView()
+
+        # Add GUI widgets to layout
+        layout = QtWidgets.QGridLayout()
+        layout.addWidget(self.search_entry, 0, 0)
+        layout.addWidget(self.transport_mode, 0, 1)
+        layout.addWidget(self.search_button, 0, 2)
+        layout.addWidget(self.web_view, 1, 0, 1, 3)
+        self.setLayout(layout)
+
+    def get_user_location(self):
+        response = requests.get("http://ip-api.com/json")
+        if response.status_code == 200:
+            data = response.json()
+            lat = data["lat"]
+            lng = data["lon"]
+            return (lat, lng)
+        else:
+            return None
+
+    def get_distance_matrix(self, origin, destinations):
+        url = f"https://api.nextbillion.io/distancematrix/json?key={API_KEY}&origins={origin[0]},{origin[1]}&destinations={destinations}&mode=4w"
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            return data
+        else:
+            return None
+
+    def search_poi(self):
+        origin = self.get_user_location()
+        lat = origin[0]
+        lng = origin[1]
+        query = self.search_entry.text()
+
+        payload = {
+            "at": f"{lat},{lng}",
+            "q": query
+        }
+        response = requests.get(DISCOVER_API_URL, params=payload).json()
+
+        if response["status"] == "OK":
+            poi = response["data"][0]
+            poi_name = poi["name"]
+            poi_lat = poi["location"]["lat"]
+            poi_lng = poi["location"]["lng"]
+
+            # Get travel mode
+            transport_mode_value = self.transport_mode.currentText()
+            if transport_mode_value == "walking":
+                mode = "walking"
+            elif transport_mode_value == "driving":
+                mode = "driving"
+
+            # Get directions
+            url = f"{DIRECTIONS_API_URL}&origin={lat},{lng}&destination={poi_lat},{poi_lng}&mode={mode}"
+            response = requests.get(url).json()
+
+            # Convert polyline to latitude and longitude pairs
+            geometry = response["routes"][0]["geometry"]
+            polyline_points = polyline.decode(geometry)
+
+            # Display the directions on a map in the web
+            self.web_view.setHtml(f'<iframe src="https://www.google.com/maps/embed/v1/directions?origin={lat},{lng}&destination={poi_lat},{poi_lng}&mode={mode}&key={API_KEY}&path=enc:{geometry}" width="600" height="450" style="border:0;" allowfullscreen="" loading="lazy"></iframe>')
